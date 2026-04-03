@@ -1313,7 +1313,7 @@
       <section class="login-panel">
         <div class="login-panel-inner">
           <h2 class="login-title">تسجيل الدخول</h2>
-          <p class="login-subtitle">أدخل اسم المستخدم وكلمة المرور للوصول إلى النظام. التحقق يتم عبر الخادم مع جلسة مصادقة فعلية.</p>
+          <p class="login-subtitle">أدخل بيانات المستخدم لفتح الصفحة. التحقق يتم من الخادم وتُحفظ الجلسة بشكل آمن داخل النظام.</p>
 
           <form class="login-form" id="loginForm" method="post" action="javascript:void(0);">
             <div class="login-field">
@@ -1775,6 +1775,7 @@
         </div>
         <div id="patientHistoryList" style="max-height: 250px; overflow-y: auto; border: 1px solid #eee; padding: 8px; border-radius: 8px;">
         </div>
+        <div id="historyPager" style="margin-top:10px;"></div>
       </div>
 
       <div class="card">
@@ -2075,6 +2076,8 @@
       } catch (error) {
         console.warn('storage save failed', error);
       }
+
+      queueSystemStateSync({ centerName: String(name || '').trim() });
     }
 
     function getCenterLogoDataUrl() {
@@ -2136,6 +2139,7 @@
         appState.settings.logoDataUrl = value;
         saveSettings();
       }
+      queueSystemStateSync({ centerLogoDataUrl: value });
       applyBrandLogo(value);
     }
 
@@ -2198,29 +2202,28 @@
     }
 
     function getManagedUsers() {
+      if (Array.isArray(appState.managedUsers) && appState.managedUsers.length > 0) {
+        return appState.managedUsers;
+      }
       const raw = storage.getItem(USERS_STORAGE_KEY);
       if (!raw) return getDefaultUsers();
       try {
         const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : getDefaultUsers();
+        return Array.isArray(parsed) && parsed.length ? parsed : getDefaultUsers();
       } catch (error) {
         return getDefaultUsers();
       }
     }
 
     function saveManagedUsers(users) {
+      appState.managedUsers = Array.isArray(users) ? users : [];
       storage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
       createRecoverySnapshot('users');
     }
 
     function ensureUsersSeeded() {
       if (!storage.getItem(USERS_STORAGE_KEY)) {
-        return;
-      }
-
-      const users = getManagedUsers();
-      if (!Array.isArray(users)) {
-        saveManagedUsers(getDefaultUsers());
+        saveManagedUsers([]);
       }
     }
 
@@ -2252,18 +2255,19 @@
       editingManagedUsername = user.username;
       if (userDisplayNameInput) userDisplayNameInput.value = user.displayName || '';
       if (userUsernameInput) userUsernameInput.value = user.username || '';
-      if (userPasswordInput) userPasswordInput.value = user.password || '';
+      if (userPasswordInput) userPasswordInput.value = '';
       if (userRoleInput) userRoleInput.value = user.role || 'lab';
       if (userActiveInput) userActiveInput.checked = !!user.active;
       if (userFormStatus) userFormStatus.textContent = `أنت الآن تعدل المستخدم: ${user.displayName || user.username}`;
     }
 
-    function deleteManagedUser(username) {
+    async function deleteManagedUser(username) {
       const users = getManagedUsers();
       if (users.length === 1) {
         alert('يجب الإبقاء على مستخدم واحد على الأقل داخل النظام.');
         return;
       }
+      await apiDeleteUser(username);
       const nextUsers = users.filter(user => user.username !== username);
       saveManagedUsers(nextUsers);
       renderUsersList();
@@ -2273,6 +2277,10 @@
     function renderUsersList() {
       if (!usersList) return;
       const users = getManagedUsers();
+      if (users.length === 0) {
+        usersList.innerHTML = '<div class="small" style="color:var(--muted);">لا توجد حسابات محملة بعد من الخادم.</div>';
+        return;
+      }
       usersList.innerHTML = '';
 
       users.forEach(user => {
@@ -2305,7 +2313,9 @@
           if (!enforcePermission('userManagement', 'إدارة المستخدمين متاحة لمدير النظام فقط.')) return;
           const username = button.dataset.username;
           if (confirm(`هل تريد حذف المستخدم ${username}؟`)) {
-            deleteManagedUser(username);
+            void deleteManagedUser(username).catch(error => {
+              alert(extractApiErrorMessage(error, 'تعذر حذف المستخدم من الخادم.'));
+            });
           }
         });
       });
@@ -2479,7 +2489,7 @@
     }
 
     if (btnSaveUser) {
-      btnSaveUser.addEventListener('click', () => {
+      btnSaveUser.addEventListener('click', async () => {
         if (!enforcePermission('userManagement', 'إدارة المستخدمين متاحة لمدير النظام فقط.')) return;
         const displayName = (userDisplayNameInput.value || '').trim();
         const username = (userUsernameInput.value || '').trim();
@@ -2497,7 +2507,7 @@
           userUsernameInput.focus();
           return;
         }
-        if (password.length < 4) {
+        if (!editingManagedUsername && password.length < 4) {
           userFormStatus.textContent = 'كلمة المرور يجب أن تكون 4 أحرف على الأقل.';
           userPasswordInput.focus();
           return;
@@ -2510,28 +2520,34 @@
         }
 
         const users = getManagedUsers();
-        const existingIndex = users.findIndex(user => user.username === editingManagedUsername || user.username === username);
         const duplicateIndex = users.findIndex(user => user.username === username && user.username !== editingManagedUsername);
         if (duplicateIndex >= 0) {
           userFormStatus.textContent = 'اسم المستخدم مستخدم بالفعل. اختر اسمًا آخر أو عدّل الحساب الحالي.';
           userUsernameInput.focus();
           return;
         }
-        const userPayload = { displayName, username, password, role, active };
-        let statusMessage = '';
 
-        if (existingIndex >= 0) {
-          users[existingIndex] = userPayload;
-          statusMessage = `تم تحديث المستخدم ${displayName} بنجاح.`;
-        } else {
-          users.unshift(userPayload);
-          statusMessage = `تمت إضافة المستخدم ${displayName} بنجاح.`;
+        try {
+          const response = await apiSaveUser({
+            editingUsername: editingManagedUsername || '',
+            displayName,
+            username,
+            password,
+            role,
+            active
+          });
+          const updatedUsers = await refreshManagedUsersFromServer();
+          saveManagedUsers(updatedUsers);
+          renderUsersList();
+          resetUserForm();
+          if (userFormStatus) {
+            userFormStatus.textContent = response?.created
+              ? `تمت إضافة المستخدم ${displayName} بنجاح.`
+              : `تم تحديث المستخدم ${displayName} بنجاح.`;
+          }
+        } catch (error) {
+          userFormStatus.textContent = extractApiErrorMessage(error, 'تعذر حفظ المستخدم على الخادم.');
         }
-
-        saveManagedUsers(users);
-        renderUsersList();
-        resetUserForm();
-        if (userFormStatus) userFormStatus.textContent = statusMessage;
       });
     }
 
@@ -2760,6 +2776,7 @@
       storage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(CATEGORIES));
       storage.setItem('lis_data_version', LIS_DATA_VERSION);
       createRecoverySnapshot('categories');
+      queueSystemStateSync({ categories: CATEGORIES, categoriesVersion: LIS_DATA_VERSION });
     }
 
     let appState = {
@@ -2767,12 +2784,19 @@
       currentOrder: [],
       currentPatient: null,
       currentUser: null,
+      authToken: '',
       publicBaseUrl: '',
+      apiRuntime: '',
       apiAvailable: false,
       apiChecked: false, // true بعد أول فشل/نجاح
       allPatientOrders: [],
+      managedUsers: [],
       currentPatientIndex: -1,
       historySearchTerm: '',
+      historyPage: 1,
+      historyPageSize: 50,
+      historyTotalPages: 1,
+      historyTotalItems: 0,
       settings: { // Default settings
         theme: 'default',
         fontSize: 14,
@@ -2875,6 +2899,8 @@
     }
 
     const LOCAL_API_PORT = '3100';
+    const API_BASE_STORAGE_KEY = 'lis_api_base';
+    const API_MODE_STORAGE_KEY = 'lis_api_mode';
 
     // Auto-load system for better UX
     function autoLoadData() {
@@ -2883,12 +2909,6 @@
 
       // Load saved settings
       loadSettings();
-
-      // Load user data if logged in
-      const savedSession = getStoredActiveSession();
-      if (savedSession) {
-        openAppSession(savedSession);
-      }
 
       // Show welcome message
       setTimeout(() => {
@@ -3020,9 +3040,36 @@
       return `${prefix}${route}`;
     }
 
+    function getStoredApiBase() {
+      const storedValue = storage.getItem(API_BASE_STORAGE_KEY);
+      return typeof storedValue === 'string' ? storedValue.trim() : '';
+    }
+
+    function getStoredApiMode() {
+      const storedValue = storage.getItem(API_MODE_STORAGE_KEY);
+      return storedValue === 'php' ? 'php' : 'rest';
+    }
+
+    function getLocalApiPortCandidates() {
+      const knownPorts = new Set([LOCAL_API_PORT, '3111', '3112', '3113']);
+
+      try {
+        const storedBase = getStoredApiBase();
+        if (storedBase) {
+          const parsedUrl = new URL(storedBase, window.location.href);
+          if (parsedUrl.port) knownPorts.add(parsedUrl.port);
+        }
+      } catch (error) {
+        console.warn('Could not parse stored API base', error);
+      }
+
+      return Array.from(knownPorts);
+    }
+
     const APP_BASE_PATH = getAppBasePath();
     const API_BASE_CANDIDATES = (() => {
       const candidates = new Set();
+      const storedBase = getStoredApiBase();
 
       // Use subfolder path (example /new3) as base path
       candidates.add('');
@@ -3030,9 +3077,16 @@
         candidates.add(APP_BASE_PATH);
       }
 
+      if (storedBase) {
+        candidates.add(storedBase);
+      }
+
       // Local development fallback
       if (window.location.protocol === 'file:') {
-        candidates.add(`http://127.0.0.1:${LOCAL_API_PORT}`);
+        getLocalApiPortCandidates().forEach(port => {
+          candidates.add(`http://127.0.0.1:${port}`);
+          candidates.add(`http://localhost:${port}`);
+        });
       }
 
       if (window.location.protocol !== 'file:' && isLocalDevelopmentHost(window.location.hostname) && window.location.port !== LOCAL_API_PORT) {
@@ -3041,9 +3095,11 @@
 
       return Array.from(candidates);
     })();
-    let activeApiBase = API_BASE_CANDIDATES[0] || '';
-    let activeApiMode = 'rest';
+    let activeApiBase = getStoredApiBase() || API_BASE_CANDIDATES[0] || '';
+    let activeApiMode = getStoredApiMode();
     const API_ALLOW_REST_FALLBACK = true;
+    let systemStateSyncTimer = null;
+    let pendingSystemStatePatch = {};
 
     // API is enabled by default (online sharing via /api routes) and falls back to localStorage when unavailable
     const API_DISABLED = false;
@@ -3515,6 +3571,7 @@
       if (totalEl) totalEl.textContent = formatCurrency(normalizedState.total || 0);
       if (countEl) countEl.textContent = normalizedState.receipts.length;
       createRecoverySnapshot('cash-register');
+      queueSystemStateSync({ cashRegister: normalizedState });
     }
 
     function persistReceiptToCashRegister(receipt) {
@@ -3784,6 +3841,7 @@
     function saveSettings() {
       storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(appState.settings));
       createRecoverySnapshot('settings');
+      queueSystemStateSync({ settings: appState.settings });
       if (appState.currentPatient && appState.currentPatient.id) {
         scheduleAutoSave('الإعدادات العامة');
       } else {
@@ -3982,16 +4040,25 @@
     }
 
     async function buildBackupPayload() {
+      let serverPayload = null;
+      if (appState.apiAvailable && appState.authToken) {
+        try {
+          serverPayload = await apiExportSystemBackup();
+        } catch (error) {
+          serverPayload = null;
+        }
+      }
+
         return {
-            version: BACKUP_FILE_VERSION,
-            exportedAt: new Date().toISOString(),
+        version: serverPayload?.version || BACKUP_FILE_VERSION,
+        exportedAt: serverPayload?.exportedAt || new Date().toISOString(),
             centerName: getCenterName(),
             settings: appState.settings,
             categories: CATEGORIES,
-            users: getManagedUsers(),
+        users: serverPayload?.users || getManagedUsers(),
             cashRegister: getCashRegister(),
             nextPatientId: Number(storage.getItem('lis_nextId') || appState.nextPatientId || 1001),
-            orders: await collectOrdersForBackup()
+        orders: serverPayload?.orders || await collectOrdersForBackup()
         };
     }
 
@@ -4027,17 +4094,15 @@
         if (!(window.location.protocol === 'http:' || window.location.protocol === 'https:')) return;
 
         try {
-            const existingOrders = await apiGetAllOrders();
-            for (const order of existingOrders) {
-                const patientId = order?.patient?.id || order?.patient_id;
-                if (patientId !== undefined && patientId !== null && patientId !== '') {
-                    await apiDeleteOrder(patientId);
-                }
-            }
-
-            for (const order of orders) {
-                await apiSaveOrder(normalizeBackupOrderEntry(order));
-            }
+        await apiRestoreSystemBackup(orders.map(normalizeBackupOrderEntry), {
+          centerName: getCenterName(),
+          centerLogoDataUrl: getCenterLogoDataUrl(),
+          settings: appState.settings,
+          categories: CATEGORIES,
+          categoriesVersion: LIS_DATA_VERSION,
+          cashRegister: getCashRegister(),
+          nextPatientId: appState.nextPatientId
+        });
 
             appState.apiAvailable = true;
         } catch (error) {
@@ -4096,21 +4161,20 @@
 
         const maxId = getMaxNumericPatientId(restoredOrders);
         const nextPatientId = Math.max(Number(payload.nextPatientId) || 0, maxId + 1, 1001);
-        appState.nextPatientId = nextPatientId;
-        storage.setItem('lis_nextId', nextPatientId);
+        persistNextPatientId(nextPatientId);
 
         appState.allPatientOrders = restoredOrders;
         renderUsersList();
         loadSettings();
         if (appState.currentUser && appState.currentUser.username !== 'guest') {
-            const refreshedUser = getManagedUsers().find(user => user.username === appState.currentUser.username && user.active);
+          const refreshedUser = getManagedUsers().find(user => user.username === appState.currentUser.username && user.active);
             if (refreshedUser) {
-                openAppSession(refreshedUser);
+            openAppSession(refreshedUser, appState.authToken);
             } else {
-                closeAppSession();
+            await closeAppSession();
             }
         }
-        refreshPatientHistory();
+        await refreshPatientHistory();
 
         if (restoredOrders[0]?.patient?.id) {
             await loadPatientOrder(restoredOrders[0].patient.id);
@@ -5397,7 +5461,7 @@
     document.getElementById('btnNewOrder').addEventListener('click',()=>{
       if (!enforcePermission('createRecords', 'إنشاء طلب جديد غير متاح لهذا المستخدم.')) return;
       const id = appState.nextPatientId++;
-      storage.setItem('lis_nextId', appState.nextPatientId);
+      persistNextPatientId(appState.nextPatientId);
       // set empty patient
       appState.currentPatient = { id: id, title:'', name:'', age:'', gender:'M', nationality:'ليبي', unit:'', physician:'' };
       // reflect UI
@@ -5688,6 +5752,7 @@
     const filterToDate = document.getElementById('filterToDate');
     const patientSearchInput = document.getElementById('patientSearchInput');
     const btnResetHistoryFilters = document.getElementById('btnResetHistoryFilters');
+    const historyPager = document.getElementById('historyPager');
 
     function getOrderDateValue(order) {
       return order?.date || order?.updated_at || order?.created_at || null;
@@ -5750,8 +5815,68 @@
         .sort((a, b) => new Date(getOrderDateValue(b) || 0) - new Date(getOrderDateValue(a) || 0));
     }
 
-    function refreshPatientHistory() {
+    function renderHistoryPager() {
+      if (!historyPager) return;
+
+      if (!(appState.apiAvailable && appState.authToken)) {
+        historyPager.innerHTML = '';
+        return;
+      }
+
+      const currentPage = appState.historyPage || 1;
+      const totalPages = appState.historyTotalPages || 1;
+      const totalItems = appState.historyTotalItems || 0;
+      historyPager.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+          <div class="small" style="color:var(--muted);">الصفحة ${currentPage} من ${totalPages} | إجمالي السجلات: ${totalItems}</div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" type="button" id="btnHistoryPrevPage" ${currentPage <= 1 ? 'disabled' : ''} style="padding:6px 10px;font-size:12px;">السابق</button>
+            <button class="btn" type="button" id="btnHistoryNextPage" ${currentPage >= totalPages ? 'disabled' : ''} style="padding:6px 10px;font-size:12px;">التالي</button>
+          </div>
+        </div>
+      `;
+
+      const prevBtn = document.getElementById('btnHistoryPrevPage');
+      const nextBtn = document.getElementById('btnHistoryNextPage');
+      if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+          if (appState.historyPage <= 1) return;
+          appState.historyPage -= 1;
+          void refreshPatientHistory();
+        });
+      }
+      if (nextBtn) {
+        nextBtn.addEventListener('click', () => {
+          if (appState.historyPage >= appState.historyTotalPages) return;
+          appState.historyPage += 1;
+          void refreshPatientHistory();
+        });
+      }
+    }
+
+    async function refreshPatientHistory() {
+      if (appState.apiAvailable && appState.authToken) {
+        try {
+          const orders = await apiGetAllOrders({
+            page: appState.historyPage,
+            pageSize: appState.historyPageSize,
+            search: appState.historySearchTerm || '',
+            from: filterFromDate?.value || '',
+            to: filterToDate?.value || ''
+          });
+          appState.allPatientOrders = orders;
+          renderPatientHistory(orders);
+          renderHistoryPager();
+          return;
+        } catch (error) {
+          console.warn('Server history loading failed, falling back to local cache.', error);
+        }
+      }
+
+      appState.historyTotalPages = 1;
+      appState.historyTotalItems = getFilteredHistoryOrders().length;
       renderPatientHistory(getFilteredHistoryOrders());
+      renderHistoryPager();
     }
 
     function getLocalDateInputValue(value = new Date()) {
@@ -5920,23 +6045,31 @@
     if (btnFilterHistory) {
       btnFilterHistory.addEventListener('click', () => {
           appState.historySearchTerm = patientSearchInput?.value || '';
-          refreshPatientHistory();
+        appState.historyPage = 1;
+        void refreshPatientHistory();
       });
     }
 
     if (patientSearchInput) {
       patientSearchInput.addEventListener('input', () => {
         appState.historySearchTerm = patientSearchInput.value || '';
-        refreshPatientHistory();
+        appState.historyPage = 1;
+        void refreshPatientHistory();
       });
     }
 
     if (filterFromDate) {
-      filterFromDate.addEventListener('change', refreshPatientHistory);
+      filterFromDate.addEventListener('change', () => {
+        appState.historyPage = 1;
+        void refreshPatientHistory();
+      });
     }
 
     if (filterToDate) {
-      filterToDate.addEventListener('change', refreshPatientHistory);
+      filterToDate.addEventListener('change', () => {
+        appState.historyPage = 1;
+        void refreshPatientHistory();
+      });
     }
 
     if (btnResetHistoryFilters) {
@@ -5945,7 +6078,8 @@
         if (filterToDate) filterToDate.value = '';
         if (patientSearchInput) patientSearchInput.value = '';
         appState.historySearchTerm = '';
-        refreshPatientHistory();
+        appState.historyPage = 1;
+        void refreshPatientHistory();
       });
     }
 
@@ -5960,13 +6094,13 @@
     }
 
     function loadTodaysPatients() {
-        appState.allPatientOrders = getHistorySourceOrders();
         const today = getLocalDateInputValue(new Date());
         if (filterFromDate) filterFromDate.value = today;
         if (filterToDate) filterToDate.value = today;
         if (patientSearchInput) patientSearchInput.value = '';
         appState.historySearchTerm = '';
-        refreshPatientHistory();
+      appState.historyPage = 1;
+      void refreshPatientHistory();
     }
 
     /*********************************************************
@@ -6189,9 +6323,14 @@
     }
 
     function cloneApiRequestOptions(options = {}) {
+      const headers = options.headers ? { ...options.headers } : {};
+      if (appState.authToken && !headers.Authorization) {
+        headers.Authorization = `Bearer ${appState.authToken}`;
+      }
+
       return {
         ...options,
-        headers: options.headers ? { ...options.headers } : undefined
+        headers
       };
     }
 
@@ -6215,7 +6354,6 @@
     function markApiUnavailable() {
       appState.apiAvailable = false;
       appState.apiChecked = true;
-      activeApiBase = '';
       apiNextRetryAt = Date.now() + API_RETRY_COOLDOWN_MS;
     }
 
@@ -6224,6 +6362,10 @@
       appState.apiChecked = true;
       apiNextRetryAt = 0;
       apiServerErrorRetryAt = 0;
+      if (activeApiBase) {
+        storage.setItem(API_BASE_STORAGE_KEY, activeApiBase);
+      }
+      storage.setItem(API_MODE_STORAGE_KEY, activeApiMode || 'php');
     }
 
     function canUseApi() {
@@ -6274,52 +6416,20 @@
       return finalMessage || fallbackMessage;
     }
 
-    const API_AUTH_TOKEN_KEY = 'lis_api_token';
-
-    function getStoredApiToken() {
-      try {
-        return storage.getItem(API_AUTH_TOKEN_KEY) || '';
-      } catch (error) {
-        return '';
-      }
-    }
-
-    function setStoredApiToken(token) {
-      try {
-        if (token) {
-          storage.setItem(API_AUTH_TOKEN_KEY, token);
-        } else {
-          storage.removeItem(API_AUTH_TOKEN_KEY);
-        }
-      } catch (error) {
-        console.warn('Could not persist API token', error);
-      }
-    }
-
     async function apiRequest(route, options = {}, validator = null) {
       if (!canUseApi()) {
-        throw new Error('لم يتم التحقق من اتصال API، سيتم استخدام localStorage فقط.');
+        const recovered = await apiPingServer(true);
+        if (!recovered) {
+          throw new Error('لم يتم التحقق من اتصال API، سيتم استخدام localStorage فقط.');
+        }
       }
-
-      const { skipAuth = false, ...rawOptions } = options;
 
       const attempts = buildApiAttemptQueue(route);
       let lastError = null;
 
       for (const attempt of attempts) {
         try {
-          const requestOptions = cloneApiRequestOptions(rawOptions);
-          if (!skipAuth) {
-            const token = getStoredApiToken();
-            if (token) {
-              requestOptions.headers = {
-                ...(requestOptions.headers || {}),
-                Authorization: `Bearer ${token}`
-              };
-            }
-          }
-
-          const response = await fetch(attempt.url, requestOptions);
+          const response = await fetch(attempt.url, cloneApiRequestOptions(options));
           const responseText = await response.text();
           const payload = parseApiPayload(responseText, response.headers.get('content-type') || '');
 
@@ -6344,8 +6454,9 @@
           apiError.url = attempt.url;
           throw apiError;
         } catch (error) {
-          if (Number(error?.status) === 401 && !skipAuth) {
-            setStoredApiToken('');
+          if (Number(error?.status) === 401) {
+            appState.authToken = '';
+            storage.removeItem('lis_active_session');
           }
           if (Number(error?.status) >= 500) {
             markApiServerError();
@@ -6375,6 +6486,7 @@
           if (!res.ok || !payload || payload.status !== 'ok') continue;
           activeApiBase = base;
           activeApiMode = mode;
+          appState.apiRuntime = String(payload.runtime || (mode === 'php' ? 'php' : 'node')).toLowerCase();
           markApiAvailable();
           return true;
         } catch (error) {
@@ -6449,23 +6561,183 @@
       return apiRequest(`/api/orders/${id}`);
     }
 
-    async function apiGetAllOrders() {
-      const orders = [];
-      let page = 1;
-      let totalPages = 1;
+    async function apiLogin(username, password) {
+      if (appState.apiRuntime === 'php') {
+        throw new Error('الاستضافة الحالية تشغل واجهة PHP القديمة فقط. هذه النسخة تحتاج استضافة تدعم Node.js أو Reverse Proxy يوجّه الطلبات إلى server.js.');
+      }
 
-      do {
-        const payload = await apiRequest(
-          `/api/orders?page=${page}&pageSize=200`,
-          {},
-          (body, response) => response.ok && Array.isArray(body?.items)
-        );
-        orders.push(...(payload.items || []));
-        totalPages = Math.max(1, Number(payload?.pagination?.totalPages) || 1);
-        page += 1;
-      } while (page <= totalPages);
+      return apiRequest('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      }, (payload, response) => response.ok && !!payload?.token && !!payload?.user);
+    }
 
-      return orders;
+    async function apiLogout() {
+      return apiRequest('/api/auth/logout', { method: 'POST' }, (payload, response) => response.ok || response.status === 401);
+    }
+
+    async function apiGetCurrentSession() {
+      return apiRequest('/api/auth/me', {}, (payload, response) => response.ok && !!payload?.user);
+    }
+
+    async function apiListUsers() {
+      return apiRequest('/api/users', {}, (payload, response) => response.ok && Array.isArray(payload?.items));
+    }
+
+    async function apiSaveUser(userPayload) {
+      return apiRequest('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userPayload)
+      }, (payload, response) => response.ok && !!payload?.saved);
+    }
+
+    async function apiDeleteUser(username) {
+      return apiRequest(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' }, (payload, response) => response.ok && !!payload?.deleted);
+    }
+
+    async function apiGetStats() {
+      return apiRequest('/api/stats', {}, (payload, response) => response.ok && payload && payload.totalCases !== undefined);
+    }
+
+    async function apiExportSystemBackup() {
+      return apiRequest('/api/system/backup', {}, (payload, response) => response.ok && Array.isArray(payload?.orders));
+    }
+
+    async function apiGetSystemState() {
+      return apiRequest('/api/system/state', {}, (payload, response) => response.ok && typeof payload?.state === 'object');
+    }
+
+    async function apiSaveSystemState(statePatch) {
+      return apiRequest('/api/system/state', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(statePatch)
+      }, (payload, response) => response.ok && !!payload?.saved);
+    }
+
+    async function apiRestoreSystemBackup(orders, state = null) {
+      return apiRequest('/api/system/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orders, state })
+      }, (payload, response) => response.ok && !!payload?.restored);
+    }
+
+    function queueSystemStateSync(statePatch = {}) {
+      pendingSystemStatePatch = { ...pendingSystemStatePatch, ...statePatch };
+      if (systemStateSyncTimer) {
+        window.clearTimeout(systemStateSyncTimer);
+      }
+      systemStateSyncTimer = window.setTimeout(() => {
+        systemStateSyncTimer = null;
+        void flushSystemStateSync();
+      }, 400);
+    }
+
+    async function flushSystemStateSync() {
+      const patch = pendingSystemStatePatch;
+      pendingSystemStatePatch = {};
+      if (!patch || Object.keys(patch).length === 0) return;
+      if (!(appState.apiAvailable && appState.authToken)) return;
+
+      try {
+        await apiSaveSystemState(patch);
+      } catch (error) {
+        pendingSystemStatePatch = { ...patch, ...pendingSystemStatePatch };
+      }
+    }
+
+    async function refreshSystemStateFromServer() {
+      if (!(appState.apiAvailable && appState.authToken)) return null;
+
+      const payload = await apiGetSystemState();
+      const state = payload?.state || {};
+
+      if (typeof state.centerName === 'string' && state.centerName.trim()) {
+        storage.setItem('lis_center_name', state.centerName.trim());
+        if (centerNameInput) centerNameInput.value = state.centerName.trim();
+      }
+
+      if (typeof state.centerLogoDataUrl === 'string') {
+        applyBrandLogo(state.centerLogoDataUrl);
+      }
+
+      if (state.settings && typeof state.settings === 'object') {
+        appState.settings = { ...appState.settings, ...state.settings };
+        storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(appState.settings));
+      }
+
+      if (Array.isArray(state.categories) && state.categories.length > 0) {
+        CATEGORIES = state.categories;
+        storage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(CATEGORIES));
+        storage.setItem('lis_data_version', String(state.categoriesVersion || LIS_DATA_VERSION));
+        renderGroups();
+        renderManageCategoriesSelect();
+      }
+
+      if (state.cashRegister && typeof state.cashRegister === 'object') {
+        storage.setItem(CASH_REGISTER_STORAGE_KEY, JSON.stringify(state.cashRegister));
+        saveCashRegister(state.cashRegister);
+      }
+
+      if (state.nextPatientId !== undefined && state.nextPatientId !== null) {
+        const numeric = parseInt(state.nextPatientId, 10);
+        if (Number.isFinite(numeric) && numeric > 0) {
+          appState.nextPatientId = numeric;
+          storage.setItem('lis_nextId', String(numeric));
+        }
+      }
+
+      loadSettings();
+      return state;
+    }
+
+    function persistNextPatientId(value = appState.nextPatientId) {
+      const numeric = Number.parseInt(value, 10);
+      if (!Number.isFinite(numeric) || numeric < 1) return;
+      appState.nextPatientId = numeric;
+      storage.setItem('lis_nextId', String(numeric));
+      queueSystemStateSync({ nextPatientId: numeric });
+    }
+
+    async function apiListOrders(options = {}) {
+      const params = new URLSearchParams();
+      if (options.page) params.set('page', String(options.page));
+      if (options.pageSize) params.set('pageSize', String(options.pageSize));
+      if (options.search) params.set('search', String(options.search));
+      if (options.from) params.set('from', String(options.from));
+      if (options.to) params.set('to', String(options.to));
+      if (options.published !== undefined && options.published !== null && options.published !== '') {
+        params.set('published', String(options.published));
+      }
+
+      const route = params.toString() ? `/api/orders?${params.toString()}` : '/api/orders';
+      return apiRequest(route, {}, (payload, response) => response.ok && Array.isArray(payload?.items));
+    }
+
+    async function apiGetAllOrders(options = {}) {
+      const optionKeys = Object.keys(options || {}).filter(key => options[key] !== undefined && options[key] !== null && options[key] !== '');
+      if (optionKeys.length === 0) {
+        const firstPage = await apiListOrders({ page: 1, pageSize: 250 });
+        const totalPages = firstPage?.meta?.totalPages || 1;
+        const collected = [...(firstPage?.items || [])];
+
+        for (let page = 2; page <= totalPages; page += 1) {
+          const nextPage = await apiListOrders({ page, pageSize: 250 });
+          collected.push(...(nextPage?.items || []));
+        }
+
+        appState.historyTotalPages = totalPages;
+        appState.historyTotalItems = firstPage?.meta?.totalItems || collected.length;
+        return collected;
+      }
+
+      const payload = await apiListOrders(options);
+      appState.historyTotalPages = payload?.meta?.totalPages || 1;
+      appState.historyTotalItems = payload?.meta?.totalItems || 0;
+      return payload?.items || [];
     }
 
     async function apiDeleteOrder(id) {
@@ -6476,33 +6748,16 @@
       return apiRequest('/api/config');
     }
 
-    async function apiLogin(username, password) {
-      return apiRequest(
-        '/api/auth/login',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-          skipAuth: true
-        },
-        (payload, response) => response.ok && !!payload?.authenticated && !!payload?.token && !!payload?.user
-      );
-    }
+    async function refreshManagedUsersFromServer() {
+      if (!(appState.apiAvailable && appState.authToken)) {
+        return getManagedUsers();
+      }
 
-    async function apiLogout() {
-      return apiRequest(
-        '/api/auth/logout',
-        { method: 'POST' },
-        (payload, response) => response.ok && payload?.loggedOut === true
-      );
-    }
-
-    async function apiGetSession() {
-      return apiRequest(
-        '/api/auth/session',
-        {},
-        (payload, response) => response.ok && !!payload?.authenticated && !!payload?.user
-      );
+      const payload = await apiListUsers();
+      const users = Array.isArray(payload?.items) ? payload.items : [];
+      saveManagedUsers(users);
+      renderUsersList();
+      return users;
     }
 
     document.getElementById('btnSaveLocal').addEventListener('click', async () => {
@@ -6901,8 +7156,7 @@
                 
                 // Recalculate nextPatientId
                 const maxId = getMaxNumericPatientId(appState.allPatientOrders);
-                appState.nextPatientId = maxId + 1;
-                storage.setItem('lis_nextId', appState.nextPatientId);
+                persistNextPatientId(maxId + 1);
 
                 alert('تم حذف السجل بنجاح.');
 
@@ -6978,8 +7232,7 @@
 
             // Ensure nextPatientId is always the highest existing ID + 1
             const maxId = getMaxNumericPatientId(appState.allPatientOrders);
-            appState.nextPatientId = maxId + 1;
-            storage.setItem('lis_nextId', appState.nextPatientId);
+            persistNextPatientId(maxId + 1);
             
             alert('تم حفظ الطلب محليًا (localStorage).');
             setAutoSaveStatus(`تم حفظ السجل الحالي — ${formatArabicDateTime(new Date())}`, 'success');
@@ -7051,20 +7304,40 @@
           appState.publicBaseUrl = '';
         }
 
+        if (!appState.authToken) {
+          void refreshPatientHistory();
+          return;
+        }
+
+        try {
+          const sessionPayload = await apiGetCurrentSession();
+          if (sessionPayload?.user) {
+            openAppSession(sessionPayload.user, appState.authToken, false);
+          }
+        } catch (sessionError) {
+          appState.authToken = '';
+          storage.removeItem('lis_active_session');
+          return;
+        }
+
+        await refreshSystemStateFromServer();
+
         const ordersFetcher = (typeof apiGetAllOrders === 'function')
           ? apiGetAllOrders
           : async () => {
               return getAllSavedOrders();
             };
 
-        const serverOrders = await ordersFetcher();
+        const serverOrders = await ordersFetcher({ page: 1, pageSize: appState.historyPageSize });
         if (serverOrders && serverOrders.length > 0) {
           appState.allPatientOrders = serverOrders;
-          refreshPatientHistory();
+          await refreshPatientHistory();
           appState.currentPatientIndex = 0;
           if (serverOrders[0] && serverOrders[0].patient && serverOrders[0].patient.id) {
-            loadPatientOrder(serverOrders[0].patient.id);
+            await loadPatientOrder(serverOrders[0].patient.id);
           }
+        } else {
+          await refreshPatientHistory();
         }
       } catch (err) {
         appState.apiAvailable = false;
@@ -7099,17 +7372,22 @@
     const ACTIVE_SESSION_KEY = 'lis_active_session';
     const sessionStatus = document.getElementById('sessionStatus');
     const btnLogout = document.getElementById('btnLogout');
-    const loginSubmit = document.getElementById('loginSubmit');
 
-    function persistActiveSession(user) {
-      if (!user) return;
+    function persistActiveSession(user, token = appState.authToken) {
+      if (!user || !token) return;
       storage.setItem(ACTIVE_SESSION_KEY, JSON.stringify({
-        username: user.username || 'guest',
-        role: user.role || 'guest'
+        token,
+        user: {
+          username: user.username || 'guest',
+          displayName: user.displayName || user.username || 'guest',
+          role: user.role || 'guest',
+          active: user.active !== false
+        }
       }));
     }
 
-    function openAppSession(user) {
+    function openAppSession(user, token = appState.authToken, persist = true) {
+      appState.authToken = token || appState.authToken || '';
       appState.currentUser = user || { displayName: 'زائر', username: 'guest', role: 'guest', active: true };
       document.body.classList.remove('login-active');
       if (loginScreen) {
@@ -7120,14 +7398,27 @@
         sessionStatus.textContent = `المستخدم: ${appState.currentUser.displayName || appState.currentUser.username} | ${getRoleLabel(appState.currentUser.role)}`;
       }
       if (btnLogout) btnLogout.style.display = 'inline-flex';
-      persistActiveSession(appState.currentUser);
+      if (persist) persistActiveSession(appState.currentUser, appState.authToken);
       applyUserPermissions();
+      if (appState.authToken) {
+        void refreshManagedUsersFromServer().catch(error => console.warn('Failed to refresh users from server', error));
+      }
     }
 
-    function closeAppSession() {
+    async function closeAppSession() {
+      const hadToken = !!appState.authToken;
+      if (hadToken) {
+        try {
+          await apiLogout();
+        } catch (error) {
+          console.warn('Logout request failed', error);
+        }
+      }
+
+      appState.authToken = '';
       appState.currentUser = null;
+      appState.managedUsers = [];
       storage.removeItem(ACTIVE_SESSION_KEY);
-      setStoredApiToken('');
       document.body.classList.add('login-active');
       if (loginScreen) {
         loginScreen.classList.remove('hidden');
@@ -7158,39 +7449,15 @@
 
       try {
         const parsed = JSON.parse(raw);
-        if (parsed?.username === 'guest') {
-          openAppSession({ displayName: 'زائر', username: 'guest', role: 'guest', active: true });
-          return true;
-        }
-
-        const matchedUser = getManagedUsers().find(user => user.username === parsed?.username && user.active);
-        if (!matchedUser) {
+        if (!parsed?.token || !parsed?.user) {
           storage.removeItem(ACTIVE_SESSION_KEY);
           return false;
         }
 
-        openAppSession(matchedUser);
+        appState.authToken = parsed.token;
+        openAppSession(parsed.user, parsed.token, false);
         return true;
       } catch (error) {
-        storage.removeItem(ACTIVE_SESSION_KEY);
-        return false;
-      }
-    }
-
-    async function hydrateServerSession() {
-      const token = getStoredApiToken();
-      if (!token) return false;
-
-      try {
-        await apiPingServer(true);
-        if (!appState.apiAvailable) return false;
-
-        const payload = await apiGetSession();
-        if (!payload?.user) return false;
-        openAppSession(payload.user);
-        return true;
-      } catch (error) {
-        setStoredApiToken('');
         storage.removeItem(ACTIVE_SESSION_KEY);
         return false;
       }
@@ -7271,29 +7538,17 @@
     }
 
     if (btnLogout) {
-      btnLogout.addEventListener('click', async () => {
-        btnLogout.disabled = true;
-        try {
-          if (getStoredApiToken()) {
-            await apiLogout();
-          }
-        } catch (error) {
-          console.warn('apiLogout failed', error);
-        } finally {
-          closeAppSession();
-          btnLogout.disabled = false;
-        }
+      btnLogout.addEventListener('click', () => {
+        void closeAppSession();
       });
     }
 
     if (loginForm) {
-      loginForm.addEventListener('submit', async event => {
+      loginForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         event.stopPropagation();
         const username = (loginUser.value || '').trim();
         const password = (loginPassword.value || '').trim();
-        const users = getManagedUsers();
-        let matchedUser = null;
 
         if (!username) {
           loginError.textContent = 'يرجى إدخال اسم المستخدم.';
@@ -7308,41 +7563,14 @@
         }
 
         loginError.textContent = '';
-        if (loginStatusHint) loginStatusHint.textContent = 'جارٍ التحقق من بيانات الدخول...';
-        if (loginSubmit) loginSubmit.disabled = true;
+        loginStatusHint.textContent = 'جارٍ التحقق من الخادم...';
 
         try {
           await apiPingServer(true);
-
-          if (appState.apiAvailable) {
-            const payload = await apiLogin(username, password);
-            setStoredApiToken(payload.token);
-            loginError.textContent = '';
-            loginStatusHint.textContent = `تم تسجيل الدخول بصفة ${getRoleLabel(payload.user.role)}`;
-            if (rememberUser.checked) {
-              storage.setItem(LOGIN_STORAGE_KEY, username);
-            } else {
-              storage.removeItem(LOGIN_STORAGE_KEY);
-            }
-            if (loginPassword) loginPassword.value = '';
-            openAppSession(payload.user);
-            return;
+          const payload = await apiLogin(username, password);
+          if (!payload?.user || !payload?.token) {
+            throw new Error('لم تصل بيانات الجلسة من الخادم');
           }
-
-          matchedUser = users.find(user => user.username === username && user.password === password);
-
-          if (!matchedUser) {
-            loginError.textContent = 'تعذر تسجيل الدخول على الخادم، ولا يوجد حساب محلي مطابق.';
-            loginPassword.focus();
-            return;
-          }
-
-          if (!matchedUser.active) {
-            loginError.textContent = 'هذا المستخدم المحلي موقوف حاليًا ولا يمكنه تسجيل الدخول.';
-            return;
-          }
-
-          loginStatusHint.textContent = `تم تسجيل الدخول محليًا بصفة ${getRoleLabel(matchedUser.role)}`;
 
           if (rememberUser.checked) {
             storage.setItem(LOGIN_STORAGE_KEY, username);
@@ -7350,12 +7578,15 @@
             storage.removeItem(LOGIN_STORAGE_KEY);
           }
 
-          openAppSession(matchedUser);
+          loginError.textContent = '';
+          loginStatusHint.textContent = `تم تسجيل الدخول بصفة ${getRoleLabel(payload.user.role)}`;
+          openAppSession(payload.user, payload.token);
+          appState.historyPage = 1;
+          await initializeFromServer();
         } catch (error) {
-          loginError.textContent = error?.payload?.message || error?.message || 'تعذر تسجيل الدخول.';
+          loginError.textContent = extractApiErrorMessage(error, 'اسم المستخدم أو كلمة المرور غير صحيحين.');
+          loginStatusHint.textContent = 'تعذر تسجيل الدخول';
           loginPassword.focus();
-        } finally {
-          if (loginSubmit) loginSubmit.disabled = false;
         }
       });
     }
@@ -7364,10 +7595,22 @@
     hydrateActiveSession();
     renderUsersList();
     applyUserPermissions();
-    hydrateServerSession();
 
     // Statistics functionality
-    function updateStatistics() {
+    async function updateStatistics() {
+      if (appState.apiAvailable && appState.authToken) {
+        try {
+          const stats = await apiGetStats();
+          document.getElementById('totalCases').textContent = stats.totalCases;
+          document.getElementById('totalTests').textContent = stats.totalTests;
+          document.getElementById('completedCases').textContent = stats.completedCases;
+          document.getElementById('pendingCases').textContent = stats.pendingCases;
+          return;
+        } catch (error) {
+          console.warn('Falling back to local statistics', error);
+        }
+      }
+
       let totalCases = 0;
       let totalTests = 0;
       let completedCases = 0;
@@ -7402,8 +7645,10 @@
       document.getElementById('pendingCases').textContent = pendingCases;
     }
 
-    document.getElementById('btnRefreshStats').addEventListener('click', updateStatistics);
-    updateStatistics(); // Initial load
+    document.getElementById('btnRefreshStats').addEventListener('click', () => {
+      void updateStatistics();
+    });
+    void updateStatistics();
   </script>
   </div>
 </body>

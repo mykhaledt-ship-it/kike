@@ -415,7 +415,8 @@
         const restUrl = base
           ? `${base}${joinBasePath(APP_BASE_PATH, `/api/${cleanRoute}`)}`
           : joinBasePath(APP_BASE_PATH, `/api/${cleanRoute}`);
-        candidates.push(restUrl, buildPhpApiUrl(cleanRoute, base));
+        // favor PHP endpoint first on shared hosting
+        candidates.push(buildPhpApiUrl(cleanRoute, base), restUrl);
       }
 
       return [...new Set(candidates)];
@@ -538,7 +539,6 @@
 
     async function loadResults() {
       const token = getTokenFromUrl();
-      const allowLocalFallback = window.location.protocol === 'file:';
       if (!token) {
         renderBranding();
         statusText.innerHTML = '<span class="error">رابط النتائج غير صالح.</span>';
@@ -563,7 +563,7 @@
         const data = await response.json();
         renderLoadedResult(data);
       } catch (error) {
-        const localData = allowLocalFallback ? findLocalOrderByToken(token) : null;
+        const localData = findLocalOrderByToken(token);
         if (localData) {
           renderBranding(localData.settings);
           if (!localData.results_published) {
