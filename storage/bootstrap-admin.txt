@@ -1,4 +1,0 @@
-Initial bootstrap administrator credentials
-username=admin
-password=eL9tXLq##4i7xpeiFL
-Delete or secure this file after the first login.
