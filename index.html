@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>موقعي | تصميم إبداعي</title>
+  <meta name="description" content="موقع احترافي مبني بتقنيات HTML وCSS وJavaScript الحديثة" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- ===== شريط التنقل ===== -->
+  <nav>
+    <a href="#hero" class="nav-logo">✦ موقعي</a>
+    <ul class="nav-links" id="navLinks">
+      <li><a href="#hero">الرئيسية</a></li>
+      <li><a href="#services">الخدمات</a></li>
+      <li><a href="#features">المميزات</a></li>
+      <li><a href="#contact">تواصل</a></li>
+    </ul>
+    <div class="nav-toggle" id="navToggle" aria-label="فتح القائمة">
+      <span></span><span></span><span></span>
+    </div>
+  </nav>
+
+  <!-- ===== قسم البطل ===== -->
+  <section id="hero">
+    <div class="hero-content">
+      <div class="hero-badge">🚀 مرحباً بك في موقعي</div>
+      <h1 class="hero-title">
+        أبدع. طوّر.<br />
+        <span>انجز أكثر.</span>
+      </h1>
+      <p class="hero-subtitle">
+        موقع مبني بأحدث تقنيات الويب، يقدم تجربة مستخدم استثنائية
+        وتصميماً عصرياً يعكس الهوية البصرية لعلامتك التجارية.
+      </p>
+      <div class="hero-buttons">
+        <a href="#services" class="btn btn-primary">🔍 استكشف الخدمات</a>
+        <a href="#contact" class="btn btn-outline">📩 تواصل معنا</a>
+      </div>
+    </div>
+    <div class="scroll-indicator">مرر للأسفل</div>
+  </section>
+
+  <!-- ===== الإحصائيات ===== -->
+  <section id="stats">
+    <div class="stats-grid">
+      <div class="stat-item reveal">
+        <div class="stat-number" data-target="250" data-suffix="+">٠</div>
+        <div class="stat-label">مشروع منجز</div>
+      </div>
+      <div class="stat-item reveal">
+        <div class="stat-number" data-target="180" data-suffix="+">٠</div>
+        <div class="stat-label">عميل راضٍ</div>
+      </div>
+      <div class="stat-item reveal">
+        <div class="stat-number" data-target="5" data-suffix=" سنوات">٠</div>
+        <div class="stat-label">سنوات خبرة</div>
+      </div>
+      <div class="stat-item reveal">
+        <div class="stat-number" data-target="99" data-suffix="٪">٠</div>
+        <div class="stat-label">نسبة الرضا</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== الخدمات ===== -->
+  <section id="services">
+    <div class="section-header">
+      <div class="section-tag">⚡ ماذا نقدم</div>
+      <h2 class="section-title">خدماتنا <span>المتميزة</span></h2>
+      <p class="section-desc">نقدم حلولاً متكاملة لتطوير حضورك الرقمي وتحقيق أهدافك التجارية بكفاءة عالية</p>
+    </div>
+    <div class="services-grid">
+      <div class="service-card reveal">
+        <div class="service-icon">🎨</div>
+        <h3>تصميم الواجهات</h3>
+        <p>تصميم واجهات مستخدم جذابة وعصرية تعكس هوية علامتك التجارية وتحقق أفضل تجربة للمستخدم.</p>
+      </div>
+      <div class="service-card reveal">
+        <div class="service-icon">⚙️</div>
+        <h3>تطوير الويب</h3>
+        <p>بناء مواقع وتطبيقات ويب احترافية باستخدام أحدث التقنيات مع ضمان الأداء العالي والأمان.</p>
+      </div>
+      <div class="service-card reveal">
+        <div class="service-icon">📱</div>
+        <h3>تصميم متجاوب</h3>
+        <p>ضمان عمل موقعك بشكل مثالي على جميع الأجهزة — من الهاتف المحمول حتى الشاشات الكبيرة.</p>
+      </div>
+      <div class="service-card reveal">
+        <div class="service-icon">🔒</div>
+        <h3>الأمان والحماية</h3>
+        <p>تطبيق أفضل معايير الأمان لحماية موقعك وبيانات عملائك من التهديدات الرقمية.</p>
+      </div>
+      <div class="service-card reveal">
+        <div class="service-icon">📈</div>
+        <h3>تحسين محركات البحث</h3>
+        <p>تحسين ظهور موقعك في نتائج محركات البحث لزيادة الزوار وتحقيق أهداف نمو أعمالك.</p>
+      </div>
+      <div class="service-card reveal">
+        <div class="service-icon">🚀</div>
+        <h3>تحسين الأداء</h3>
+        <p>تحسين سرعة التحميل وأداء الموقع لضمان تجربة سلسة ومرضية لجميع المستخدمين.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== المميزات ===== -->
+  <section id="features">
+    <div class="features-container">
+      <div class="section-header">
+        <div class="section-tag">💎 لماذا نحن</div>
+        <h2 class="section-title">مميزات <span>تجعلنا مختلفين</span></h2>
+        <p class="section-desc">نؤمن بأن التميز يكمن في التفاصيل، لذا نحرص على تقديم أفضل معايير الجودة في كل مشروع</p>
+      </div>
+      <div class="features-grid">
+        <div class="feature-item reveal">
+          <div class="feature-icon">⚡</div>
+          <div class="feature-text">
+            <h4>سرعة فائقة</h4>
+            <p>مواقع تُحمَّل في أقل من ثانية لضمان أفضل تجربة للمستخدم.</p>
+          </div>
+        </div>
+        <div class="feature-item reveal">
+          <div class="feature-icon">🎯</div>
+          <div class="feature-text">
+            <h4>دقة في التنفيذ</h4>
+            <p>نلتزم بأدق التفاصيل لتحقيق رؤيتك بأعلى جودة ممكنة.</p>
+          </div>
+        </div>
+        <div class="feature-item reveal">
+          <div class="feature-icon">🌐</div>
+          <div class="feature-text">
+            <h4>دعم متعدد اللغات</h4>
+            <p>بناء مواقع تدعم اللغة العربية والإنجليزية وغيرها بسهولة.</p>
+          </div>
+        </div>
+        <div class="feature-item reveal">
+          <div class="feature-icon">🛠️</div>
+          <div class="feature-text">
+            <h4>صيانة مستمرة</h4>
+            <p>دعم تقني وصيانة دورية لضمان استمرارية عمل موقعك دون انقطاع.</p>
+          </div>
+        </div>
+        <div class="feature-item reveal">
+          <div class="feature-icon">💡</div>
+          <div class="feature-text">
+            <h4>أفكار إبداعية</h4>
+            <p>نقدم حلولاً مبتكرة تتجاوز التوقعات وتُلهم الزوار.</p>
+          </div>
+        </div>
+        <div class="feature-item reveal">
+          <div class="feature-icon">📊</div>
+          <div class="feature-text">
+            <h4>تحليلات تفصيلية</h4>
+            <p>متابعة أداء موقعك وتقارير شاملة لاتخاذ قرارات أفضل.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== تواصل معنا ===== -->
+  <section id="contact">
+    <div class="section-header">
+      <div class="section-tag">📩 تواصل</div>
+      <h2 class="section-title">أرسل لنا <span>رسالة</span></h2>
+      <p class="section-desc">هل لديك مشروع أو استفسار؟ تواصل معنا وسنرد في أقرب وقت ممكن</p>
+    </div>
+    <div class="contact-form reveal">
+      <form id="contactForm" novalidate>
+        <div class="form-group">
+          <label for="name">الاسم الكامل</label>
+          <input type="text" id="name" name="name" placeholder="أدخل اسمك الكامل" required />
+        </div>
+        <div class="form-group">
+          <label for="email">البريد الإلكتروني</label>
+          <input type="email" id="email" name="email" placeholder="example@email.com" required />
+        </div>
+        <div class="form-group">
+          <label for="subject">الموضوع</label>
+          <input type="text" id="subject" name="subject" placeholder="موضوع رسالتك" required />
+        </div>
+        <div class="form-group">
+          <label for="message">الرسالة</label>
+          <textarea id="message" name="message" placeholder="اكتب رسالتك هنا..." required></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary form-submit">إرسال الرسالة 📤</button>
+        <div class="form-success" id="formSuccess">✅ تم إرسال رسالتك بنجاح! سنتواصل معك قريباً.</div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===== التذييل ===== -->
+  <footer>
+    <div class="footer-logo">✦ موقعي</div>
+    <ul class="footer-links">
+      <li><a href="#hero">الرئيسية</a></li>
+      <li><a href="#services">الخدمات</a></li>
+      <li><a href="#features">المميزات</a></li>
+      <li><a href="#contact">تواصل</a></li>
+    </ul>
+    <div class="footer-social">
+      <a href="#" class="social-btn" aria-label="GitHub">⌥</a>
+      <a href="#" class="social-btn" aria-label="Twitter">𝕏</a>
+      <a href="#" class="social-btn" aria-label="LinkedIn">in</a>
+      <a href="#" class="social-btn" aria-label="Instagram">📸</a>
+    </div>
+    <p class="footer-copy">© 2026 موقعي · جميع الحقوق محفوظة · بُني بـ ❤️ على GitHub Pages</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
